@@ -1,82 +1,99 @@
-"""
-Plot two closed-loop drone top-view (x, y) trajectories on the same plot,
-alongside a shared obstacle, start, and goal marker.
-
-Expects two .npz files produced by the quadrotor PSF simulation script's
-trajectory-saving step, each containing (at least):
-    x_hist      : (T+1, 12) true-plant physical states
-                  [x,y,z,vx,vy,vz,phi,theta,psi,p,q,r]
-    obs_center  : (2,)      obstacle center [ox, oy]  (x-y projection)
-    obs_radius  : scalar    obstacle radius
-    x0_phys     : (12,)     initial condition
-    x_goal      : (3,)      goal position [gx, gy, gz]
-
-Usage:
-    python plot_two_drone_trajectories.py traj_A.npz traj_B.npz
-    python plot_two_drone_trajectories.py traj_A.npz traj_B.npz -l1 "run 0" -l2 "run 1"
-    python plot_two_drone_trajectories.py traj_A.npz traj_B.npz -o combined.png
-"""
-
-# python DRN_7_Draw.py Ex4_pasf.npz Ex4_std.npz -l1 "Proposed" -l2 "Standard"
-
 import argparse
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-parser = argparse.ArgumentParser(description="Plot two drone closed-loop top-view trajectories together.")
-parser.add_argument('traj1', type=str, help='Path to first trajectory .npz file')
-parser.add_argument('traj2', type=str, help='Path to second trajectory .npz file')
-parser.add_argument('-l1', '--label1', type=str, default='trajectory 1', help='Legend label for trajectory 1')
-parser.add_argument('-l2', '--label2', type=str, default='trajectory 2', help='Legend label for trajectory 2')
-parser.add_argument('-o', '--output', type=str, default='psf_quad_two_trajectories.png',
+parser = argparse.ArgumentParser(description="Plot two groups of drone trajectories in solid red / blue.")
+parser.add_argument('--dir', type=str, default='.', help='Directory containing the .npz files')
+parser.add_argument('--prefix1', type=str, default='Sam_1', help='Filename prefix for group 1 (files <prefix1>_0.npz .. <prefix1>_9.npz)')
+parser.add_argument('--prefix2', type=str, default='Sam_3', help='Filename prefix for group 2 (files <prefix2>_0.npz .. <prefix2>_9.npz)')
+parser.add_argument('--n', type=int, default=10, help='Number of trajectories per group (X in {0,...,n-1})')
+parser.add_argument('-l1', '--label1', type=str, default='Standard', help='Legend label for group 1')
+parser.add_argument('-l2', '--label2', type=str, default='Performance Aware', help='Legend label for group 2')
+parser.add_argument('-o', '--output', type=str, default='psf_quad_groups.png',
                      help='Output image filename')
 args = parser.parse_args()
 
-# ── Load both trajectory files ──────────────────────────────────────
-data1 = np.load(args.traj1)
-data2 = np.load(args.traj2)
 
-x_hist_1 = data1['x_hist']       # (T1+1, 12)
-x_hist_2 = data2['x_hist']       # (T2+1, 12)
-
-# Shared obstacle, start, and goal -- taken from traj1 (warn if traj2 disagrees)
-obs_center = data1['obs_center']
-obs_radius = float(data1['obs_radius'])
-x0_phys = data1['x0_phys']
-x_goal = data1['x_goal']
-
-if not np.allclose(obs_center, data2['obs_center']) or not np.isclose(obs_radius, float(data2['obs_radius'])):
-    print("WARNING: traj1 and traj2 have different obstacles -- plot only shows traj1's obstacle.")
-if not np.allclose(x0_phys, data2['x0_phys']):
-    print("WARNING: traj1 and traj2 have different initial conditions -- plot only shows traj1's start.")
-if not np.allclose(x_goal, data2['x_goal']):
-    print("WARNING: traj1 and traj2 have different goals -- plot only shows traj1's goal.")
+def load_group(directory, prefix, n):
+    """Load n trajectory files named <prefix>_0.npz ... <prefix>_{n-1}.npz."""
+    datasets = []
+    for i in range(n):
+        path = os.path.join(directory, f"{prefix}_{i}.npz")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Expected trajectory file not found: {path}")
+        datasets.append(np.load(path))
+    return datasets
 
 
-# ── Plot ─────────────────────────────────────────────────────────────
-fig, ax = plt.subplots(figsize=(6, 6))
+group1 = load_group(args.dir, args.prefix1, args.n)
+group2 = load_group(args.dir, args.prefix2, args.n)
+
+xy1_list = [d['x_hist'][:, :2] for d in group1]
+xy2_list = [d['x_hist'][:, :2] for d in group2]
+
+
+ref = group1[0]
+obs_center = ref['obs_center']
+obs_radius = float(ref['obs_radius'])
+x0_phys = ref['x0_phys']
+x_goal = ref['x_goal']
+
+
+all_others = group1[1:] + group2
+for idx, d in enumerate(all_others):
+    if not np.allclose(obs_center, d['obs_center']) or not np.isclose(obs_radius, float(d['obs_radius'])):
+        print(f"WARNING: file #{idx} has a different obstacle -- plot only shows the reference obstacle.")
+    if not np.allclose(x0_phys, d['x0_phys']):
+        print(f"WARNING: file #{idx} has a different initial condition -- start dots still reflect each file's own trajectory.")
+    if not np.allclose(x_goal, d['x_goal']):
+        print(f"WARNING: file #{idx} has a different goal -- plot only shows the reference goal.")
+
+
+# Plot
+fig, ax = plt.subplots(figsize=(8, 5.5))
 theta_c = np.linspace(0, 2 * np.pi, 100)
 
-# Obstacle (shared, x-y projection)
-ax.plot(obs_center[0] + obs_radius * np.cos(theta_c),
-        obs_center[1] + obs_radius * np.sin(theta_c), 'r-', label='obstacle')
+LINE_COLOR_1 = 'red'
+LINE_COLOR_2 = 'blue'
+LINE_WIDTH = 1.5
+START_MARKER_SIZE = 6
 
-# Trajectories (top-view, x-y)
-ax.plot(x_hist_1[:, 0], x_hist_1[:, 1], 'b-', linewidth=2, label=args.label1)
-ax.plot(x_hist_2[:, 0], x_hist_2[:, 1], color='darkorange', linewidth=2, label=args.label2)
+_start_label_added = False
 
-# Start marker (shared)
-ax.plot(x0_phys[0], x0_phys[1], 'go', markersize=8, label='start')
 
-# Goal marker (shared)
-ax.plot(x_goal[0], x_goal[1], 'k*', markersize=12, label='goal')
+def plot_group(xy_list, line_color, label):
+    global _start_label_added
+    for i, xy in enumerate(xy_list):
+        ax.plot(xy[:, 0], xy[:, 1], color=line_color, linewidth=LINE_WIDTH,
+                zorder=4, label=label if i == 0 else None)
 
-ax.set_xlabel('x')
-ax.set_ylabel('y')
-ax.set_title('Top-view (x-y) trajectories')
-ax.legend(loc='upper left')
+        start_label = None
+        if not _start_label_added:
+            start_label = 'Start'
+            _start_label_added = True
+        ax.plot(xy[0, 0], xy[0, 1], 'go', markersize=START_MARKER_SIZE,
+                zorder=6, label=start_label)
+
+
+# Obstacle
+obstacle_x = obs_center[0] + obs_radius * np.cos(theta_c)
+obstacle_y = obs_center[1] + obs_radius * np.sin(theta_c)
+ax.fill(obstacle_x, obstacle_y, facecolor='lightgreen', edgecolor='green',
+        linewidth=1.5, zorder=3, label='Obstacle')
+
+# Trajectories
+plot_group(xy1_list, LINE_COLOR_1, args.label1)
+plot_group(xy2_list, LINE_COLOR_2, args.label2)
+
+# Goal
+ax.plot(x_goal[0], x_goal[1], 'k*', markersize=12, zorder=5, label='Goal')
+
+ax.set_xlabel('x', fontsize=16)
+ax.set_ylabel('y', fontsize=16)
+ax.tick_params(axis='both', labelsize=13)
+ax.legend(loc='upper left', fontsize=13)
 ax.grid(alpha=0.3)
-ax.set_aspect('equal')
 plt.tight_layout()
 
 plt.savefig(args.output, dpi=150)

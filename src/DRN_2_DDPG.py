@@ -17,41 +17,22 @@ LR_CRITIC = 0.002
 BATCH_SIZE = 64
 BUFFER_SIZE = 100_000
 TOTAL_EPISODES = 2_000
-MAX_STEPS = 300  # 150 * dt(0.1s) = 15s of simulated flight per episode
+MAX_STEPS = 300
 
-# --- Policy/critic observability ---
-# The env's full observation is [x,y,z,vx,vy,vz,phi,theta,psi,p,q,r] (12-dim).
-# Unlike the translational-only variant of this script, here the policy
-# (actor) and Q-function (critic) are given the FULL state -- position,
-# velocity, attitude, and body rates -- rather than being restricted to
-# the 6-dim [x,y,z,vx,vy,vz] slice the cascaded LQR design would otherwise
-# make sufficient. This lets pi and Q condition on everything the env
-# reports, at the cost of a larger input dimension for both networks.
 POLICY_STATE_DIM = 12  # x, y, z, vx, vy, vz, phi, theta, psi, p, q, r
 
 
 def extract_policy_state(obs):
-    """Identity pass-through: the policy/critic now see the full env
-    observation, so no slicing is needed. Kept as a function (rather than
-    just using obs directly) so the training loop below doesn't need to
-    change shape depending on which state representation is in use."""
     return obs
 
 
 # --- Neural Networks ---
-# NOTE: architecture (Linear -> gelu -> Linear -> gelu -> Linear) unchanged.
-# Only the input dimensions differ from the translational-only variant:
-# state_dim is now POLICY_STATE_DIM (12) instead of 6, and the Critic's
-# input is state(12) + action(3) = 15 instead of state(6) + action(3) = 9.
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, max_action):
         super(Actor, self).__init__()
         self.l1 = nn.Linear(state_dim, 32)
         self.l2 = nn.Linear(32, 32)
         self.l3 = nn.Linear(32, action_dim)
-        # Quad env's vref_min == -vref_max (symmetric), so a plain
-        # tanh * max_action squashing is exact here -- no need for an
-        # asymmetric-bound split.
         self.max_action = torch.FloatTensor(max_action)
 
     def forward(self, state):
@@ -86,7 +67,7 @@ class DDPGAgent:
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=LR_CRITIC)
 
         self.replay_buffer = deque(maxlen=BUFFER_SIZE)
-        self.max_action = max_action  # numpy array, used for the clip below
+        self.max_action = max_action
 
     def select_action(self, state, noise=0.1):
         state = torch.FloatTensor(state).unsqueeze(0)
@@ -136,16 +117,12 @@ class DDPGAgent:
         checkpoint = torch.load(filename)
         self.actor.load_state_dict(checkpoint['actor_state_dict'])
         self.critic.load_state_dict(checkpoint['critic_state_dict'])
-        # Also sync target networks
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())
         print(f"Checkpoint {filename} loaded!")
 
     def export_to_npz(self, filepath="nn_weights.npz"):
-        """
-        Dimension-agnostic export (policy_W0,b0,... / critic_W0,b0,...);
-        works for any Actor/Critic regardless of state/action dims.
-        """
+
         def linear_layers(module):
             return [m for m in module.children() if isinstance(m, nn.Linear)]
 
@@ -163,8 +140,6 @@ class DDPGAgent:
 
 # --- Training Loop ---
 env = NonlinearQuadrotorEnv(render_mode="human")
-# NOTE: agent is now built with POLICY_STATE_DIM (12), which matches
-# env.observation_space.shape[0] exactly -- pi and Q see the full state.
 agent = DDPGAgent(POLICY_STATE_DIM, env.action_space.shape[0], env.action_space.high)
 rewards_history = []
 
@@ -197,11 +172,6 @@ env.close()
 
 agent.save_checkpoint("ddpg_quad_full_state.pth")
 agent.export_to_npz("nn_weights_quad_2_effort_300.npz")
-# Quadrotor
-# Since the actor/critic now take the full 12-dim observation directly
-# (no slicing), plot_quad_trajectory / plot_quad_Qfunction / animate_quad
-# can pass env observations straight into agent.actor / agent.critic
-# without any extract_policy_state adaptation.
 plot_quad_learning_curve(rewards_history)
 plot_quad_trajectory(env, agent)
 plot_quad_Qfunction(agent)
