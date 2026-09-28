@@ -36,3 +36,36 @@ The slack variable penalization weight in both the standard and performance-awar
 - `DRN_6_Data.py`: Generates the bar plot of episodic returns versus obstacle radius
 - `DRN_7_Draw.py`: Generates XY-plane trajectory plots for different initial conditions
 
+
+## Usage
+
+Install the dependencies:
+
+```bash
+pip install do-mpc casadi scipy matplotlib numpy torch gymnasium
+```
+
+All scripts are in `src/` and use relative paths, so run them from there.
+
+Pretrained weights and the results used in the paper are included, so each step below can be run on its own.
+
+1. **Train the DDPG agent (optional).** Run `python DRN_2_DDPG.py`. This saves `ddpg_quad_full_state.pth` and `nn_weights_quad_2_effort_300.npz`. The safety filters load `nn_weights_quad_2_effort_prcp_300.npz`, so rename the new weights file to that name if you want the filters to use it.
+
+2. **Run a single simulation.** Run `python DRN_4_PSF.py` for the performance-aware filter or `python DRN_4_SSF.py` for the standard filter. Optional arguments:
+
+   | Argument | Description | Default |
+   |---|---|---|
+   | `-ocx`, `-ocy` | Obstacle center | `-2.0`, `-2.0` |
+   | `-or` | Obstacle radius | `0.5` |
+   | `-xi`, `-yi`, `-zi` | Initial position | near `(-3.6, -3.8, 3.0)` |
+   | `-rid` | Run identifier | none |
+
+   Each run appends its episode return and solver timings to `psf_quad_results.jsonl` and saves the trajectory to `psf_quad_trajectory_PASF_<run_id>.npz`.
+
+3. **Run all scenarios.** Set `SCRIPT` in `DRN_5_Sims.py` to `DRN_4_PSF.py` or `DRN_4_SSF.py`, then run `python DRN_5_Sims.py`. This runs 30 simulations: obstacle radii 0.5, 0.75 and 1.0, each with 10 perturbed initial positions. Run IDs 0–9, 10–19 and 20–29 correspond to the three radii in that order. Both filters write to the same output files, so rename the results after each batch:
+   - Performance-aware: `psf_quad_results_GenPASF_org.jsonl`
+   - Standard: `psf_quad_results_baseline_org.jsonl`
+
+4. **Plot episodic returns versus obstacle radius.** Run `python DRN_6_Data.py`. This reads the two `.jsonl` files above and saves `psf_quad_mean_std_grouped_compare.png`.
+
+5. **Plot XY trajectories.** Run `python DRN_7_Draw.py`. This reads `Sam_1_0.npz` to `Sam_1_9.npz` (standard filter) and `Sam_3_0.npz` to `Sam_3_9.npz` (performance-aware filter) and saves `psf_quad_groups.png`. To plot your own runs, rename the trajectory files of one obstacle radius to these names, or point the script to them with `--prefix1` and `--prefix2`.
