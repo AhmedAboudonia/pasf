@@ -23,4 +23,16 @@ The predictive safety filter uses a prediction horizon of $10$ steps, $\lambda_1
 
 In both filters, we constrain the safety filter computation to complete within the sampling time of the DDPG agent.
 
-The slack variable penalization weight in both the standard and performance-aware safety filters is manually tuned to optimize performance, resulting in a weight of $4$ for the standard safety filter and $400$ for the performance-aware safety filter.
+The slack variable penalization weight in both the standard and performance-aware safety filters is manually tuned to optimize performance, resulting in a weight of $4$ for the standard safety filter and $440$ for the performance-aware safety filter.
+
+## Repository structure
+
+- `DRN_1_Env.py`: Drone environment (Gymnasium), including the LQR inner-loop controller
+- `DRN_2_DDPG.py`: DDPG agent and training
+- `DRN_3_Plot.py`: Plotting utilities
+- `DRN_4_PASF.py`: Performance-aware safety filter (PASF)
+- `DRN_4_SSF.py`: Standard safety filter (SSF)
+- `DRN_5_Sims.py`: Runs simulations for all scenarios (initial conditions and obstacle radii)
+- `DRN_6_Data.py`: Generates the bar plot of episodic returns versus obstacle radius
+- `DRN_7_Draw.py`: Generates XY-plane trajectory plots for different initial conditions
+
